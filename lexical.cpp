@@ -8,7 +8,8 @@ enum tokenType {
     operaTor,   //3
     separator,  //4
     stringtype, //5
-    unknown     //6
+    preprocessor, //6
+    unknown     //7
 };
 
 struct token {
@@ -42,11 +43,17 @@ vector<token> tokenize(const string &code) {
     int column = 1;
     while(i < len) {
         char c = code[i];
-        // Skip preprocessor directives
+
+        // Handle preprocessor directives like #include <...>
         if (c == '#') {
+            int start = i;
             while (i < len && code[i] != '\n') i++;
+            string val = code.substr(start, i - start-1);
+            tokens.push_back({tokenType::preprocessor, val, line, column});
+            column += (i - start);
             continue;
         }
+
         //Ignore spaces
         if(isspace(c)) {
             if(c == '\n') {
@@ -75,20 +82,20 @@ vector<token> tokenize(const string &code) {
         if(c == '/' && i+1<len && code[i+1] == '*') {
             i+=2;
             column+=2;
-            while(i+1<len && code[i] != '*' && code[i+1] != '/') {
+            while(i+1<len && !(code[i] == '*' && code[i+1] == '/')) {
                 if(code[i] == '\n') {
                     line++;
                     column = 1;
                 }
                 else
                     column++;
+                i++;
             }
             i+=2;
             column+=2;
             continue;
         } 
 
-        //Now start generating tokens
         //Identifing string literals
         if(c == '"') {
             i++;
@@ -101,28 +108,26 @@ vector<token> tokenize(const string &code) {
             continue;
         }
 
-        //Identifying operators
-        // Identifying operators (including << and >>)
-    if (operators.count(c)) {
-        string op(1, c);
+        //Identifying operators (including << and >>)
+        if (operators.count(c)) {
+            string op(1, c);
 
-        // Look ahead for <<, >>, <=, >=, ==, !=
-        if (i + 1 < len) {
-            char next = code[i + 1];
-            if ((c == '<' && next == '<') || (c == '>' && next == '>') ||
-                (c == '<' && next == '=') || (c == '>' && next == '=') ||
-                (c == '=' && next == '=') || (c == '!' && next == '=')) {
-                op += next;
-                i++;
+            // Look ahead for <<, >>, <=, >=, ==, !=
+            if (i + 1 < len) {
+                char next = code[i + 1];
+                if ((c == '<' && next == '<') || (c == '>' && next == '>') ||
+                    (c == '<' && next == '=') || (c == '>' && next == '=') ||
+                    (c == '=' && next == '=') || (c == '!' && next == '=')) {
+                    op += next;
+                    i++;
+                }
             }
+
+            tokens.push_back({tokenType::operaTor, op, line, column});
+            column += op.length();
+            i++;
+            continue;
         }
-
-        tokens.push_back({tokenType::operaTor, op, line, column});
-        column += op.length();
-        i++;
-        continue;
-    }
-
 
         //Identifying separators
         if(separators.count(c)) {
@@ -168,8 +173,34 @@ string tokenToString(tokenType t) {
         case operaTor:return "Operator";
         case separator:return "Separator";
         case stringtype:return "String   ";
+        case preprocessor:return "Preprocessor";
         default:return "Unknown";
     }
 }
 
 
+/*int main() {
+    ifstream file("input.cpp");
+    if (!file.is_open()) {
+        cerr << "Error opening file\n";
+        return 1;
+    }
+    string code((istreambuf_iterator<char>(file)), {});
+    vector<token> toks = tokenize(code);
+
+    for (const auto& t : toks) {
+            cout << "Type: " << tokenToString(t.type)
+                 << ", Value: '" << t.value
+                 << "', Line: " << t.line
+                 << ", Column: " << t.col << "\n";
+        }
+
+    /*    //Assuming your syntax analyzer has already run successfully:
+    Parser p(toks);
+    p.parse();
+
+    //SemanticAnalyzer sem(toks);
+    //sem.analyze();
+    return 0;
+}
+*/
