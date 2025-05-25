@@ -1,39 +1,68 @@
 // semantic.cpp
 #include <bits/stdc++.h>
-#include "syntax.cpp"
+#include "syntax.cpp"   // brings in Parser, tokenize(), token, etc.
 using namespace std;
 
+// —————————————————————————————————————————————————————————————
+// A “Symbol” entry: stores type, scope level, memory address, and value.
+// —————————————————————————————————————————————————————————————
 struct Symbol {
-    string type;
-    int scopeLevel;
+    string type;             // e.g. "int", "float", "char", ...
+    int scopeLevel;          // 0 = global, 1 = first nested block, etc.
+    string memoryAddress;    // mock hex address, e.g. "0x1000"
+    string value;            // either literal or "Uninitialized"
 };
 
+// —————————————————————————————————————————————————————————————
+// The SemanticAnalyzer builds a vector of (name → Symbol) entries
+// and, at the end, prints a 5-column ASCII table: Name | Type | Scope | Memory Address | Value
+// —————————————————————————————————————————————————————————————
 class SemanticAnalyzer {
     vector<token> tokens;
     int current = 0;
     int currentScopeLevel = 0;
-    vector<unordered_map<string, Symbol>> symbolTableStack;
+
+    // Stack of “maps” from (name → Symbol) for each scope level:
+    vector<map<string, Symbol>> symbolTableStack;
+
+    // Preserve insertion order so we can print in declaration order:
+    vector<pair<string, Symbol>> symbolEntries;
+
+    // Next mock address (4-byte increments) starting at 0x1000:
+    unsigned int nextAddress = 0x1000;
 
 public:
     SemanticAnalyzer(const vector<token>& t)
       : tokens(t)
     {
-        symbolTableStack.push_back({});  // global scope
+        // Start with one global scope (level 0):
+        symbolTableStack.push_back({});
     }
 
     void analyze() {
+        // Walk all top-level statements/blocks:
         while (!isAtEnd()) {
             statement();
         }
+        // Print the 5-column symbol table:
+        printSymbolTable();
         cout << "Semantic Analysis Successful.\n";
     }
 
 private:
-    // ——— Basic token utilities ———
-    token peek()              { return current < tokens.size() ? tokens[current] : token{unknown,"",-1,-1}; }
-    token advance()           { return tokens[current++]; }
-    bool match(tokenType ty, const string& v="") {
-        if (current < tokens.size() &&
+    // ————————————————————————————— Token Utilities —————————————————————————————
+    token peek() {
+        if (current < (int)tokens.size())
+            return tokens[current];
+        return token{ unknown, "", -1, -1 };
+    }
+
+    token advance() {
+        return tokens[current++];
+    }
+
+    bool match(tokenType ty, const string& v = "") {
+        if (current < (int)tokens.size() &&
             tokens[current].type == ty &&
             (v.empty() || tokens[current].value == v))
         {
@@ -42,145 +71,280 @@ private:
         }
         return false;
     }
-    bool check(tokenType ty, const string& v="") {
-        return (current < tokens.size() &&
-                tokens[current].type == ty &&
-                (v.empty() || tokens[current].value == v));
+
+    bool check(tokenType ty, const string& v = "") {
+        if (current >= (int)tokens.size()) return false;
+        return (tokens[current].type == ty) &&
+               (v.empty() || tokens[current].value == v);
     }
-    bool isAtEnd() { return current >= tokens.size(); }
+
+    bool isAtEnd() {
+        return current >= (int)tokens.size();
+    }
+
+    token peekNext(int offset = 1) {
+        int idx = current + offset;
+        if (idx < (int)tokens.size())
+            return tokens[idx];
+        return token{ unknown, "", -1, -1 };
+    }
 
     void error(const string& msg) {
-        auto t = peek();
-        cerr << "Semantic Error at line " << t.line
-             << ", column " << t.col << ": " << msg << "\n";
+        token t = peek();
+        if (t.line == -1) {
+            cerr << "Semantic Error: " << msg << " (unexpected end of input)\n";
+        } else {
+            cerr << "Semantic Error at line " << t.line
+                 << ", column " << t.col << ": " << msg << "\n";
+        }
         exit(1);
     }
 
-    // ——— Scope management ———
-    void enterScope() {
-        symbolTableStack.push_back({});
-        currentScopeLevel++;
-    }
-    void exitScope() {
-        symbolTableStack.pop_back();
-        currentScopeLevel--;
-    }
-    auto& currentScope() {
+    // Return reference to current (innermost) scope’s map:
+    map<string, Symbol>& currentScope() {
         return symbolTableStack.back();
     }
 
+    // Search through scopes to see if name was declared:
     bool isDeclared(const string& name) {
-        for (int i = symbolTableStack.size() - 1; i >= 0; --i)
-            if (symbolTableStack[i].count(name))
-                return true;
+        for (int i = (int)symbolTableStack.size() - 1; i >= 0; --i) {
+            if (symbolTableStack[i].count(name)) return true;
+        }
         return false;
     }
+
+    // Look up type of name from innermost → outermost:
     string getType(const string& name) {
-        for (int i = symbolTableStack.size() - 1; i >= 0; --i)
-            if (symbolTableStack[i].count(name))
-                return symbolTableStack[i][name].type;
+        for (int i = (int)symbolTableStack.size() - 1; i >= 0; --i) {
+            auto& tbl = symbolTableStack[i];
+            if (tbl.count(name)) {
+                return tbl[name].type;
+            }
+        }
         return "";
     }
+
+    // int ↔ float compatibility; otherwise must match exactly:
     bool typesCompatible(const string& lhs, const string& rhs) {
         if (lhs == rhs) return true;
-        // int ↔ float both ways allowed
-        const set<string> num = {"int","float"};
+        const set<string> num = { "int", "float" };
         if (num.count(lhs) && num.count(rhs)) return true;
         return false;
     }
 
-    // ——— Top-level dispatcher ———
+    // ————————————————————————————— Print 5-Column Symbol Table —————————————————————————————
+    void printSymbolTable() {
+        if (symbolEntries.empty()) {
+            cout << "No symbols declared.\n";
+            return;
+        }
+
+        // Determine max width of each column:
+        size_t nameW   = strlen("Name");
+        size_t typeW   = strlen("Type");
+        size_t scopeW  = strlen("Scope");
+        size_t addrW   = strlen("Memory Address");
+        size_t valueW  = strlen("Value");
+
+        for (auto& pr : symbolEntries) {
+            const string& nm  = pr.first;
+            const Symbol& sym = pr.second;
+            nameW   = max(nameW, nm.size());
+            typeW   = max(typeW, sym.type.size());
+            // Scope as string
+            string sScope = to_string(sym.scopeLevel);
+            scopeW  = max(scopeW, sScope.size());
+            addrW   = max(addrW, sym.memoryAddress.size());
+            valueW  = max(valueW, sym.value.size());
+        }
+
+        // Build a horizontal border: +--nameW--+--typeW--+--scopeW--+--addrW--+--valueW--+
+        auto mkBorder = [&]() {
+            string border = "+";
+            border += string(nameW  + 2, '-') + "+";
+            border += string(typeW  + 2, '-') + "+";
+            border += string(scopeW + 2, '-') + "+";
+            border += string(addrW  + 2, '-') + "+";
+            border += string(valueW + 2, '-') + "+";
+            return border;
+        };
+
+        string border = mkBorder();
+
+        // Header row:
+        cout << border << "\n";
+        cout << "| " << left << setw(nameW)   << "Name"
+             << " | " << left << setw(typeW)   << "Type"
+             << " | " << right << setw(scopeW) << "Scope"
+             << " | " << left << setw(addrW)   << "Memory Address"
+             << " | " << left << setw(valueW)  << "Value"
+             << " |\n";
+        cout << border << "\n";
+
+        // Each entry row:
+        for (auto& pr : symbolEntries) {
+            const string& nm = pr.first;
+            const Symbol& sym = pr.second;
+            string sScope = to_string(sym.scopeLevel);
+
+            cout << "| " << left << setw(nameW)   << nm
+                 << " | " << left << setw(typeW)   << sym.type
+                 << " | " << right << setw(scopeW) << sScope
+                 << " | " << left << setw(addrW)   << sym.memoryAddress
+                 << " | " << left << setw(valueW)  << sym.value
+                 << " |\n";
+        }
+        cout << border << "\n";
+    }
+
+    // ————————————————————————————— Top-Level Statement Dispatcher —————————————————————————————
     void statement() {
+        // 1) Block “{ … }”
         if (match(separator, "{")) {
-            enterScope();
+            symbolTableStack.push_back({});   // new nested scope
+            currentScopeLevel++;
+
             while (!match(separator, "}")) {
-                if (isAtEnd()) error("Unclosed block in semantic pass");
+                if (isAtEnd()) {
+                    error("Unclosed block in semantic analysis");
+                }
                 statement();
             }
-            exitScope();
+
+            symbolTableStack.pop_back();
+            currentScopeLevel--;
         }
-        else if (check(keyword, "int")  ||
-                 check(keyword, "float")||
-                 check(keyword, "char") ||
+        // 2) Declaration: int x;  or  float y = 3;
+        else if (check(keyword, "int")   ||
+                 check(keyword, "float") ||
+                 check(keyword, "char")  ||
                  check(keyword, "bool"))
         {
             declaration();
-            // optionally consume trailing ';'
-            if (match(separator, ";")) {}
+            match(separator, ";");  // consume trailing “;” if present
         }
-        else if (check(identifier) && peekNext().type == operaTor && peekNext().value == "=") {
+        // 3) Assignment: x = expr;
+        else if (check(identifier) &&
+                 peekNext().type == operaTor &&
+                 peekNext().value == "=")
+        {
             assignment();
-            if (match(separator, ";")) {}
+            match(separator, ";");
         }
+        // 4) Otherwise skip (including stray semicolons)
         else {
-            // skip any other tokens (including ';')
             advance();
         }
     }
 
-    token peekNext(int off = 1) {
-        int idx = current + off;
-        return idx < tokens.size() ? tokens[idx] : token{unknown,"",-1,-1};
-    }
-
-    // ——— Declarations ———
+    // ————————————————————————————— Declarations —————————————————————————————
     void declaration() {
-        string varType = advance().value;  // consume type keyword
-        if (!match(identifier))
-            error("Expected variable name in declaration");
-        string varName = tokens[current - 1].value;
+        // Next token is a type keyword
+        string varType = advance().value;  // e.g. "int", "float", …
 
-        // duplicate in same scope?
-        if (currentScope().count(varName))
-            error("Variable '" + varName + "' redeclared in same scope");
-
-        currentScope()[varName] = {varType, currentScopeLevel};
-
-        // optional initializer
-        if (match(operaTor, "=")) {
-            string rhs = evaluateExpressionType();
-            if (!typesCompatible(varType, rhs))
-                error("Cannot initialize '" + varName +
-                      "' (" + varType + ") with " + rhs);
+        if (!match(identifier)) {
+            error("Expected variable name after type");
         }
-    }
-
-    // ——— Assignments ———
-    void assignment() {
-        advance();  // identifier
         string varName = tokens[current - 1].value;
 
-        if (!isDeclared(varName))
-            error("Variable '" + varName + "' used before declaration");
+        // Redeclaration check (current scope only)
+        if (currentScope().count(varName)) {
+            error("Variable '" + varName + "' redeclared in same scope");
+        }
 
-        string lhs = getType(varName);
-        match(operaTor, "=");
-        string rhs = evaluateExpressionType();
-        if (!typesCompatible(lhs, rhs))
-            error("Cannot assign " + rhs + " to '" + varName + "' (" + lhs + ")");
+        // Mock memory address: allocate 4 bytes at nextAddress
+        char buf[20];
+        snprintf(buf, sizeof(buf), "0x%04X", nextAddress);
+        string addrStr = buf;
+        nextAddress += 4;
+
+        // Initializer value (literal or “Uninitialized”)
+        string initVal = "Uninitialized";
+        if (match(operaTor, "=")) {
+            if (check(number)) {
+                initVal = tokens[current].value;
+                advance();
+            }
+            else if (check(identifier)) {
+                string rhsName = tokens[current].value;
+                if (!isDeclared(rhsName)) {
+                    error("Variable '" + rhsName + "' used before declaration in initializer");
+                }
+                initVal = rhsName;
+                advance();
+            }
+            else {
+                error("Only single-literal or identifier initialization supported");
+            }
+        }
+
+        // Create Symbol, insert into current scope and symbolEntries
+        Symbol sym;
+        sym.type          = varType;
+        sym.scopeLevel    = currentScopeLevel;
+        sym.memoryAddress = addrStr;
+        sym.value         = initVal;
+
+        currentScope()[varName] = sym;
+        symbolEntries.push_back({ varName, sym });
     }
 
-    // ——— Expression type eval ———
-    string evaluateExpressionType() {
-        // primary
-        string res = primaryType();
+    // ————————————————————————————— Assignments (type-check only) —————————————————————————————
+    void assignment() {
+        advance();  // consume identifier
+        string varName = tokens[current - 1].value;
 
-        // * /
+        if (!isDeclared(varName)) {
+            error("Variable '" + varName + "' used before declaration");
+        }
+        string lhsType = getType(varName);
+
+        match(operaTor, "=");
+
+        // Determine RHS type (single literal or identifier)
+        string rhsType;
+        if (check(number)) {
+            string rhsVal = tokens[current].value;
+            rhsType = (rhsVal.find('.') != string::npos) ? "float" : "int";
+            advance();
+        }
+        else if (check(identifier)) {
+            string rhsName = tokens[current].value;
+            if (!isDeclared(rhsName)) {
+                error("Variable '" + rhsName + "' used before declaration in assignment");
+            }
+            rhsType = getType(rhsName);
+            advance();
+        }
+        else {
+            error("Only single-literal or identifier assignment supported");
+        }
+
+        if (!typesCompatible(lhsType, rhsType)) {
+            error("Cannot assign type '" + rhsType + "' to variable '" 
+                   + varName + "' (" + lhsType + ")");
+        }
+
+        // NOTE: We do NOT update `symbolEntries[].second.value` here,
+        // so declaration-time “Uninitialized” remains if there was no initializer.
+    }
+
+    // ————————————————————————————— Expression-Type Evaluation (unused for “value”) —————————————————————————————
+    string evaluateExpressionType() {
+        string res = primaryType();
         while (check(operaTor, "*") || check(operaTor, "/")) {
             advance();
             string r = primaryType();
-            res = (res=="float"||r=="float") ? "float" : "int";
+            res = (res == "float" || r == "float") ? "float" : "int";
         }
-        // + -
         while (check(operaTor, "+") || check(operaTor, "-")) {
             advance();
             string r = primaryType();
-            res = (res=="float"||r=="float") ? "float" : "int";
+            res = (res == "float" || r == "float") ? "float" : "int";
         }
         return res;
     }
 
-    // ——— Primary (number | identifier | '(' expr ')' ) ———
     string primaryType() {
         if (match(number)) {
             string lit = tokens[current - 1].value;
@@ -188,34 +352,17 @@ private:
         }
         if (match(identifier)) {
             string name = tokens[current - 1].value;
-            if (!isDeclared(name))
-                error("Variable '" + name + "' used before declaration");
+            if (!isDeclared(name)) {
+                error("Variable '" + name + "' used before declaration in expression");
+            }
             return getType(name);
         }
         if (match(separator, "(")) {
-            string t = evaluateExpressionType();
+            string inner = evaluateExpressionType();
             match(separator, ")");
-            return t;
+            return inner;
         }
-        error("Invalid expression in semantic pass");
+        error("Invalid expression in semantic analysis");
         return "";
     }
 };
-
-int main() {
-    ifstream file("input.cpp");
-    if (!file.is_open()) {
-        cerr << "Error opening file\n";
-        return 1;
-    }
-    string code((istreambuf_iterator<char>(file)), {});
-    vector<token> toks = tokenize(code);
-
-    //Assuming your syntax analyzer has already run successfully:
-    Parser p(toks);
-    p.parse();
-
-    SemanticAnalyzer sem(toks);
-    sem.analyze();
-    return 0;
-}
