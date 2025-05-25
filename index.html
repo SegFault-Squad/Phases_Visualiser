@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>C++ Compiler Frontend</title>
+    <link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>C++ Compiler Frontend</h1>
+
+        <form method="POST">
+            <textarea name="code" placeholder="Write your C++ code here..." required>{{ code }}</textarea>
+
+            <input type="hidden" name="phase" id="phaseInput" value="{{ phase }}">
+
+            <div class="phases">
+                <button type="button" class="phase-btn {% if phase == 'lexical' %}active{% endif %}" data-phase="lexical">Lexical</button>
+                <button type="button" class="phase-btn {% if phase == 'syntax' %}active{% endif %}" data-phase="syntax">Syntax</button>
+                <button type="button" class="phase-btn {% if phase == 'semantic' %}active{% endif %}" data-phase="semantic">Semantic</button>
+            </div>
+
+            <button type="submit" class="analyze-btn">Analyze</button>
+        </form>
+
+        {% if output %}
+        <div class="output">
+            <h2>Output</h2>
+            <pre>{{ output }}</pre>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Handle phase button selection
+        document.querySelectorAll('.phase-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.phase-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('phaseInput').value = btn.dataset.phase;
+            });
+        });
+
+        // Enable tab in textarea
+        document.querySelector("textarea").addEventListener("keydown", function(e) {
+            if (e.key === "Tab") {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+                this.value = this.value.substring(0, start) + "\t" + this.value.substring(end);
+                this.selectionStart = this.selectionEnd = start + 1;
+            }
+        });
+    </script>
+</body>
+</html>

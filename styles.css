@@ -1,0 +1,103 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: #1e1e2f;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #f0f0f0;
+    padding: 2em;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+    padding: 2em;
+    background-color: #2a2a3b;
+    border-radius: 12px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.4);
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 1.5em;
+    color: #70e3ff;
+}
+
+textarea {
+    width: 100%;
+    height: 300px;
+    background-color: #1a1a27;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 1em;
+    font-size: 1rem;
+    color: #ddd;
+    font-family: monospace;
+    margin-bottom: 1em;
+    resize: vertical;
+}
+
+.phases {
+    display: flex;
+    justify-content: center;
+    gap: 1em;
+    margin-bottom: 1.5em;
+}
+
+.phase-btn {
+    padding: 0.6em 1.2em;
+    border: none;
+    background-color: #444;
+    color: #ccc;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.phase-btn.active {
+    background-color: #00bfff;
+    color: #000;
+    font-weight: bold;
+}
+
+.phase-btn:hover {
+    background-color: #555;
+}
+
+.analyze-btn {
+    width: 100%;
+    padding: 0.8em;
+    font-size: 1.1rem;
+    background: linear-gradient(90deg, #00c6ff, #0072ff);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: opacity 0.3s;
+}
+
+.analyze-btn:hover {
+    opacity: 0.9;
+}
+
+.output {
+    background-color: #111827;
+    padding: 1em;
+    border-radius: 8px;
+    margin-top: 2em;
+    border-left: 5px solid #00c6ff;
+}
+
+.output h2 {
+    margin-bottom: 0.5em;
+    color: #00c6ff;
+}
+
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #aef;
+}
